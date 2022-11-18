@@ -1,14 +1,14 @@
 module Sudoku where
 
--- import Test.QuickCheck
+import Test.QuickCheck
 import Data.Char
--- import Data.OldList
+import Data.Maybe
+import Data.List
 
 
 ------------------------------------------------------------------------------
 main :: IO ()
 main = do
-   print isSudoku example
    printSudoku example
 -- | Representation of sudoku puzzles (allows some junk)
 type Cell = Maybe Int -- a single cell
@@ -59,8 +59,7 @@ isSudoku (Sudoku rows) = length rows == 9 && all f rows
 -- | isFilled sud checks if sud is completely filled in,
 -- i.e. there are no blanks
 isFilled :: Sudoku -> Bool
-isFilled s = isSudoku s
-isFilled (Sudoku rows) = length rows == 9 && all f rows
+isFilled (Sudoku rows) = isSudoku (Sudoku rows) && length rows == 9 && all f rows
   where f r = (length r == 9) && all (not . isNothing) r
 
 
@@ -71,8 +70,10 @@ isFilled (Sudoku rows) = length rows == 9 && all f rows
 -- | printSudoku sud prints a nice representation of the sudoku sud on
 -- the screen
 printSudoku :: Sudoku -> IO ()
-printSudoku (Sudoku s) = print $ unlines $ map showRow s
-  where showRow = foldr (++) . map (maybe ['.'] show)
+printSudoku (Sudoku s) = putStrLn $ unlines $ map (concatMap f) s
+  where f Nothing = "."
+        f (Just n) = show n
+  
 
 -- * B2
 
@@ -81,7 +82,7 @@ printSudoku (Sudoku s) = print $ unlines $ map showRow s
 readSudoku :: FilePath -> IO Sudoku
 readSudoku fp = do
   s <- readFile fp
-  return $ Sudoku $ map (map char2Cell) lines s
+  return $ Sudoku $ map (map char2Cell) $ lines s
   where char2Cell '.' = Nothing
         char2Cell n = Just $ digitToInt n
 
@@ -90,22 +91,26 @@ readSudoku fp = do
 -- * C1
 
 -- | cell generates an arbitrary cell in a Sudoku
--- cell :: Gen (Cell)
--- cell = undefined
-
+cell :: Gen (Cell)
+cell = elements $ (take 9 $ repeat Nothing) ++ map Just [1..9]
+-- [Nothing, map Maybe [1..9]]
+-- https://hackage.haskell.org/package/QuickCheck-2.14.2/docs/Test-QuickCheck-Gen.html#v:choose
 
 -- * C2
 
 -- | an instance for generating Arbitrary Sudokus
--- instance Arbitrary Sudoku where
---  arbitrary = undefined
+-- generates 
+instance Arbitrary Sudoku where
+ arbitrary = do
+   rows <- vectorOf 9 (vectorOf 9 cell)
+   return $ Sudoku rows
 
  -- hint: get to know the QuickCheck function vectorOf
  
 -- * C3
 
 prop_Sudoku :: Sudoku -> Bool
-prop_Sudoku = undefined
+prop_Sudoku = isSudoku
   -- hint: this definition is simple!
   
 ------------------------------------------------------------------------------
@@ -114,24 +119,39 @@ type Block = [Cell] -- a Row is also a Cell
 
 
 -- * D1
-
 isOkayBlock :: Block -> Bool
-isOkayBlock = undefined
+-- takes list sorts and filters on ~= nothing
+-- check if empty, checks if value
+-- checks consecutive elements for ~=
+isOkayBlock = f . sort . filter (/= Nothing)
+  where f [] = True
+        f [x] = True
+        f (x:y:xs) = x /= y && f (y:xs)
 
 
 -- * D2
 
+blocks' :: [[Cell]] -> [Block]
+blocks' [r1, r2, r3] = map (concat . map f) $ chunksOf 3 $ zip3 r1 r2 r3
+  where f (c1, c2, c3) = [c1, c2, c3]
+blocks' _ = undefined
+
+chunksOf :: Int -> [a] -> [[a]]
+chunksOf n [] = []
+chunksOf n xs = take n xs : chunksOf n (drop n xs)
+
 blocks :: Sudoku -> [Block]
-blocks = undefined
+blocks (Sudoku rows) = concat $ map blocks' $ chunksOf 3 rows 
 
 prop_blocks_lengths :: Sudoku -> Bool
-prop_blocks_lengths = undefined
+prop_blocks_lengths = f . blocks
+  where f bs = length bs == 9 && all (\b -> length b == 9) bs
 
 -- * D3
 
 isOkay :: Sudoku -> Bool
-isOkay = undefined
-
+isOkay (Sudoku rs) = all isOkayBlock $ concat [rs, transpose rs, blocks (Sudoku rs)]
+  
 
 ---- Part A ends here --------------------------------------------------------
 ------------------------------------------------------------------------------
