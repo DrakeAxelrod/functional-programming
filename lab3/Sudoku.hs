@@ -1,21 +1,35 @@
+{- Lab 3
+   Date: November 21, 2022
+   Authors: Drake Axelrod, Hugo Lom
+   Lab group: 68
+ -}
+
 module Sudoku where
 
 import Test.QuickCheck
 import Data.Char
 import Data.Maybe
 import Data.List
+import Control.Monad (mfilter)
 
 
 ------------------------------------------------------------------------------
 main :: IO ()
 main = do
-   printSudoku example
+  s <- readSudoku "./sudoku.txt"
+  -- add new lines after every inner list
+  print (sort $ map sort $ blocks s)
+
 -- | Representation of sudoku puzzles (allows some junk)
 type Cell = Maybe Int -- a single cell
 type Row  = [Cell]    -- a row is a list of cells
 
-data Sudoku = Sudoku [Row] 
- deriving ( Show, Eq )
+-- data Sudoku = Sudoku [Row] 
+--  deriving ( Show, Eq )
+newtype Sudoku
+  = Sudoku [Row]
+  deriving (Show, Eq)
+
 
 rows :: Sudoku -> [Row]
 rows (Sudoku ms) = ms
@@ -48,27 +62,34 @@ allBlankSudoku = Sudoku (replicate 9 (replicate 9 Nothing))
 -- * A2
 
 -- | isSudoku sud checks if sud is really a valid representation of a sudoku
--- puzzle
+-- immediately return false if the sudoku is empty
+-- check if the sudoku has 9 rows and each row has 9 cells
+-- check if each cell is a valid cell
 isSudoku :: Sudoku -> Bool
 isSudoku (Sudoku []) = False
 isSudoku (Sudoku rows) = length rows == 9 && all f rows
-  where f r = (length r == 9) && all (\c -> maybe True (\n -> 1 <= n && n <= 9) c) r
+  where f r = (length r == 9) && all (maybe True (\n -> 1 <= n && n <= 9)) r
 
 -- * A3
 
 -- | isFilled sud checks if sud is completely filled in,
 -- i.e. there are no blanks
+-- check is rows is valid sudoku checks if length of rows is 9 and each row has 9 cells
+-- check if each cell is a valid cell and not Nothing
 isFilled :: Sudoku -> Bool
 isFilled (Sudoku rows) = isSudoku (Sudoku rows) && length rows == 9 && all f rows
-  where f r = (length r == 9) && all (not . isNothing) r
+  where f r = (length r == 9) && (not . any isNothing) r
 
 
 ------------------------------------------------------------------------------
 
 -- * B1
 
--- | printSudoku sud prints a nice representation of the sudoku sud on
--- the screen
+-- | printSudoku prints a nice representation of the sudoku to stdout
+-- print each row replace Nothing with '.' and the value with the value
+-- unlines creates a string with newlines between each row
+-- map (map f) maps the function f over each cell in the row
+-- concatMap (map f) maps the function f over each cell in the row and concatenates the result
 printSudoku :: Sudoku -> IO ()
 printSudoku (Sudoku s) = putStrLn $ unlines $ map (concatMap f) s
   where f Nothing = "."
@@ -79,6 +100,11 @@ printSudoku (Sudoku s) = putStrLn $ unlines $ map (concatMap f) s
 
 -- | readSudoku file reads from the file, and either delivers it, or stops
 -- if the file did not contain a sudoku
+-- reads the file into a string s and then parses the string into a sudoku
+-- using using map (map f) to map the function f over each cell in the row
+-- lines splits the string into a list of strings, each string is a row
+-- char2Cell converts a character to a cell
+-- digitToInt converts a digit to an integer
 readSudoku :: FilePath -> IO Sudoku
 readSudoku fp = do
   s <- readFile fp
@@ -91,24 +117,31 @@ readSudoku fp = do
 -- * C1
 
 -- | cell generates an arbitrary cell in a Sudoku
-cell :: Gen (Cell)
-cell = elements $ (take 9 $ repeat Nothing) ++ map Just [1..9]
+-- elements generates an arbitrary element from a list
+-- replicate 9 Nothing generates a list of 9 Nothing
+-- map Just [1..9] generates a list of 9 Just 1..9
+-- then we concat the two lists for a even distribution of numbers and Nothing
+cell :: Gen Cell
+cell = elements $ replicate 9 Nothing ++ map Just [1..9]
 -- [Nothing, map Maybe [1..9]]
 -- https://hackage.haskell.org/package/QuickCheck-2.14.2/docs/Test-QuickCheck-Gen.html#v:choose
 
 -- * C2
 
 -- | an instance for generating Arbitrary Sudokus
--- generates 
+-- vectorOf generates a list of n arbitrary elements
+-- so calling vectorOf 9 on vectorOf 9 cell generates
+-- a list of 9 lists of 9 arbitrary elements
 instance Arbitrary Sudoku where
  arbitrary = do
-   rows <- vectorOf 9 (vectorOf 9 cell)
-   return $ Sudoku rows
+   s <- vectorOf 9 (vectorOf 9 cell)
+   return $ Sudoku s
 
  -- hint: get to know the QuickCheck function vectorOf
  
 -- * C3
-
+-- | Checks if the sudoku is a 9x9 grid where every cell is either missing or between 1 and 9
+-- use isSudoku since it solves the same problem
 prop_Sudoku :: Sudoku -> Bool
 prop_Sudoku = isSudoku
   -- hint: this definition is simple!
@@ -119,6 +152,7 @@ type Block = [Cell] -- a Row is also a Cell
 
 
 -- * D1
+-- | Checks if the block has only unique cells, given that they are filled in
 isOkayBlock :: Block -> Bool
 -- takes list sorts and filters on ~= nothing
 -- check if empty, checks if value
@@ -130,28 +164,46 @@ isOkayBlock = f . sort . filter (/= Nothing)
 
 
 -- * D2
-
+-- | Helper method, creates a single row of blocks given three sudoku rows.
 blocks' :: [[Cell]] -> [Block]
-blocks' [r1, r2, r3] = map (concat . map f) $ chunksOf 3 $ zip3 r1 r2 r3
+blocks' [r1, r2, r3] = map (concatMap f) $ chunksOf 3 $ zip3 r1 r2 r3
   where f (c1, c2, c3) = [c1, c2, c3]
 blocks' _ = undefined
 
+-- | Given a number `n` and a list, returns a new list containing chunks of `n` 
+-- items from the list
 chunksOf :: Int -> [a] -> [[a]]
 chunksOf n [] = []
 chunksOf n xs = take n xs : chunksOf n (drop n xs)
 
-blocks :: Sudoku -> [Block]
-blocks (Sudoku rows) = concat $ map blocks' $ chunksOf 3 rows 
+-- | Extracts all 9, 3x3 blocks from the sudoku. 
+allBlocks :: Sudoku -> [Block]
+allBlocks = concatMap blocks' . chunksOf 3 . rows
+-- concat . map blocks' . chunksOf 3 . rows 
 
+-- | Recursively sorts a list of lists of cells
+-- made this just to see if output was the same as the test
+sortBlocks :: [Block] -> [Block]
+sortBlocks = sort . map sort
+
+-- | given a Sudoku, creates a list of all blocks (rows, columns, 3x3 boxes) of 
+-- that Sudoku.
+blocks :: Sudoku -> [Block]
+-- concat the rows, columns and blocks
+blocks (Sudoku r) = r ++ transpose r ++ allBlocks ( Sudoku r) 
+
+
+-- | Checks if the length of the block size is 27 and that all
+-- the blocks length is nine
 prop_blocks_lengths :: Sudoku -> Bool
 prop_blocks_lengths = f . blocks
-  where f bs = length bs == 9 && all (\b -> length b == 9) bs
+  where f bs = length bs == 27 && all (\b -> length b == 9) bs
 
 -- * D3
 
+-- | Checks that within every block, there are no repeated digits
 isOkay :: Sudoku -> Bool
-isOkay (Sudoku rs) = all isOkayBlock $ concat [rs, transpose rs, blocks (Sudoku rs)]
-  
+isOkay = all isOkayBlock . blocks
 
 ---- Part A ends here --------------------------------------------------------
 ------------------------------------------------------------------------------
@@ -164,35 +216,68 @@ type Pos = (Int,Int)
 
 -- * E1
 
+-- | blanks extracts the positions of all blank cells in a Sudoku
+-- refactor blanks using elemIndices
 blanks :: Sudoku -> [Pos]
-blanks = undefined
+blanks (Sudoku r) = concat $ zipWith f r [0..]
+  where f r' i = map (\j -> (i,j)) $ elemIndices Nothing r'
 
---prop_blanks_allBlanks :: ...
---prop_blanks_allBlanks =
+
+-- | property that checks that the blanks of allBlankSudoku 
+-- are indeed all of the expected 9x9 cells.  
+prop_blanks_allBlanks :: Bool
+prop_blanks_allBlanks = all (\c -> (0,0) <= c && c <= (8,8)) b && length b == 81
+  where b = blanks allBlankSudoku
 
 
 -- * E2
 
 (!!=) :: [a] -> (Int,a) -> [a]
-xs !!= (i,y) = undefined
+xs !!= (i,y) = take i xs ++ [y] ++ drop (i+1) xs
 
---prop_bangBangEquals_correct :: ...
---prop_bangBangEquals_correct =
+
+-- So that we can test your `prop_bangBangEquals_correct` function, 
+-- you must give it a non-polymorphic type
+-- (i.e. don't use type variables in its type).
+-- 
+prop_bangBangEquals_correct :: [Cell] -> (Int,Cell) -> Property
+prop_bangBangEquals_correct xs (i,y) = 
+  0 <= i && i < length xs && not (null xs) ==> l && v
+  where xs' = xs !!= (i,y)
+        l = length xs' == length xs
+        v = xs' !! i == y
+
 
 
 -- * E3
 
 update :: Sudoku -> Pos -> Cell -> Sudoku
-update = undefined
+update (Sudoku r) (x,y) c = Sudoku $ r !!= (y, (r !! y) !!= (x, c))
 
---prop_update_updated :: ...
---prop_update_updated =
+-- | standard module to make life simpler
+(%) :: Int -> Int -> Int
+x % y = x `mod` y
+
+-- | map within tuples
+mapT :: (a -> b) -> (a,a) -> (b,b)
+mapT f (x,y) = (f x, f y)
+
+
+prop_update_updated :: Sudoku -> Pos -> Cell -> Bool
+-- account for same value added
+prop_update_updated s p c = r' !! y !! x == c
+  where s' = update s p' c
+        Sudoku r' = s'
+        p' = mapT (abs . (%9)) p
+        (x, y) = p'
 
 
 ------------------------------------------------------------------------------
 
 -- * F1
 
+solve :: Sudoku -> Maybe Sudoku
+solve s = undefined
 
 -- * F2
 
