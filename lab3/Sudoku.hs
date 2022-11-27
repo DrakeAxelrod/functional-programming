@@ -14,11 +14,6 @@ import Control.Monad (mfilter)
 
 
 ------------------------------------------------------------------------------
-main :: IO ()
-main = do
-  s <- readSudoku "./sudoku.txt"
-  -- add new lines after every inner list
-  print (sort $ map sort $ blocks s)
 
 -- | Representation of sudoku puzzles (allows some junk)
 type Cell = Maybe Int -- a single cell
@@ -122,7 +117,7 @@ readSudoku fp = do
 -- map Just [1..9] generates a list of 9 Just 1..9
 -- then we concat the two lists for a even distribution of numbers and Nothing
 cell :: Gen Cell
-cell = elements $ replicate 9 Nothing ++ map Just [1..9]
+cell = elements $ replicate 27 Nothing ++ map Just [1..9]
 -- [Nothing, map Maybe [1..9]]
 -- https://hackage.haskell.org/package/QuickCheck-2.14.2/docs/Test-QuickCheck-Gen.html#v:choose
 
@@ -252,7 +247,7 @@ prop_bangBangEquals_correct xs (i,y) =
 -- * E3
 
 update :: Sudoku -> Pos -> Cell -> Sudoku
-update (Sudoku r) (x,y) c = Sudoku $ r !!= (y, (r !! y) !!= (x, c))
+update (Sudoku r) (y,x) c = Sudoku $ r !!= (y, (r !! y) !!= (x, c))
 
 -- | standard module to make life simpler
 (%) :: Int -> Int -> Int
@@ -269,20 +264,55 @@ prop_update_updated s p c = r' !! y !! x == c
   where s' = update s p' c
         Sudoku r' = s'
         p' = mapT (abs . (%9)) p
-        (x, y) = p'
+        (y, x) = p'
 
 
 ------------------------------------------------------------------------------
 
 -- * F1
+solve' :: Sudoku -> [Pos] -> [Sudoku]
+solve' s _     | not (isOkay s) = []
+solve' s []    = [s]
+solve' s (p:r) = concatMap (\c -> flip solve' r $ update s p (Just c)) [1..9]
 
 solve :: Sudoku -> Maybe Sudoku
-solve s = undefined
+solve s | not (isSudoku s) = Nothing
+        -- | isFilled s && isOkay s = Just s
+        | otherwise = listToMaybe $ solve' s $ blanks s
+
 
 -- * F2
-
+readAndSolve :: FilePath -> IO ()
+readAndSolve fp = do
+    s <- readSudoku fp
+    case solve s of
+      Just s' -> printSudoku s'
+      _       -> putStr "(no solution)\n"
 
 -- * F3
 
+(😋) :: Eq a => Maybe a -> Maybe a -> Bool
+Nothing 😋 (Just _) = True
+(Just _) 😋 Nothing = True
+x 😋 y = x == y
+
+isSolutionOf :: Sudoku -> Sudoku -> Bool
+isSolutionOf s s' | isFilled s && isOkay s = all id $ zipWith (😋) c c'
+                  | otherwise = False
+  where c  = concat $ rows s
+        c' = concat $ rows s'
+  
 
 -- * F4
+
+prop_SolveSound :: Sudoku -> Property
+prop_SolveSound s = isOkay s ==>
+  case solve s of
+    Just s' -> isSolutionOf s' s
+    _       -> True
+
+wierd_Sudoku = Sudoku [[Nothing,Nothing,Nothing,Just 5,Nothing,Nothing,Nothing,Just 3,Nothing],[Nothing,Nothing,Nothing,Nothing,Nothing,Just 3,Nothing,Just 4,Nothing],[Nothing,Just 4,Nothing,Nothing,Nothing,Nothing,Nothing,Nothing,Nothing],[Nothing,Nothing,Just 9,Nothing,Nothing,Nothing,Nothing,Nothing,Nothing],[Nothing,Nothing,Nothing,Nothing,Just 4,Nothing,Just 5,Nothing,Nothing],[Nothing,Nothing,Nothing,Nothing,Nothing,Nothing,Just 2,Just 7,Just 4],[Nothing,Nothing,Nothing,Just 8,Nothing,Nothing,Nothing,Nothing,Just 9],[Nothing,Nothing,Nothing,Nothing,Nothing,Nothing,Nothing,Nothing,Nothing],[Nothing,Nothing,Nothing,Nothing,Nothing,Nothing,Nothing,Just 6,Nothing]]
+
+main :: IO()
+main = do
+  quickCheck prop_SolveSound
