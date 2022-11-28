@@ -1,17 +1,16 @@
+{-# LANGUAGE TupleSections #-}
 {- Lab 3
    Date: November 21, 2022
    Authors: Drake Axelrod, Hugo Lom
    Lab group: 68
  -}
-
 module Sudoku where
 
 import Test.QuickCheck
 import Data.Char
 import Data.Maybe
 import Data.List
-import Control.Monad (mfilter)
-
+import System.Directory
 
 ------------------------------------------------------------------------------
 
@@ -88,7 +87,6 @@ printSudoku :: Sudoku -> IO ()
 printSudoku (Sudoku s) = putStrLn $ unlines $ map (concatMap f) s
   where f Nothing = "."
         f (Just n) = show n
-  
 
 -- * B2
 
@@ -151,8 +149,8 @@ isOkayBlock :: Block -> Bool
 -- takes list sorts and filters on ~= nothing
 -- check if empty, checks if value
 -- checks consecutive elements for ~=
-isOkayBlock = not . null . nub . filter (/= Nothing)
-
+isOkayBlock b = b' == nub b'
+  where b' = catMaybes b
 
 -- * D2
 -- | Helper method, creates a single row of blocks given three sudoku rows.
@@ -211,7 +209,7 @@ type Pos = (Int,Int)
 -- refactor blanks using elemIndices
 blanks :: Sudoku -> [Pos]
 blanks (Sudoku r) = concat $ zipWith f r [0..]
-  where f r' i = map (\j -> (i,j)) $ elemIndices Nothing r'
+  where f r' i = map (i,) $ elemIndices Nothing r'
 
 
 -- | Property that checks that the blanks of allBlankSudoku 
@@ -268,7 +266,7 @@ prop_update_updated s p c = r' !! y !! x == c
 solve' :: Sudoku -> [Pos] -> [Sudoku]
 solve' s _     | not (isOkay s) = []
 solve' s []    = [s]
-solve' s (p:r) = concatMap (\c -> flip solve' r $ update s p (Just c)) [1..9]
+solve' s (p:r) = concatMap (flip solve' r . update s p . Just) [1..9]
 
 -- | Solve a Sudoku puzzle by extracting either the first solution produced by solve'
 -- or indicating failure if no solutions exists.
@@ -300,7 +298,7 @@ x 😋 y = x == y
 -- that each filled cell in the second sudoku exists at same position in 
 -- the solved one
 isSolutionOf :: Sudoku -> Sudoku -> Bool
-isSolutionOf s s' | isFilled s && isOkay s = all id $ zipWith (😋) c c'
+isSolutionOf s s' | isFilled s && isOkay s = and $ zipWith (😋) c c'
                   | otherwise = False
   where c  = concat $ rows s
         c' = concat $ rows s'
@@ -312,3 +310,14 @@ prop_SolveSound :: Sudoku -> Property
 prop_SolveSound s | not (isOkay s) = property Discard 
                   | otherwise = maybe (property Discard) f (solve s)
   where f s' = property $ isSolutionOf s' s
+
+-- for all the files in functional-programming/lab3/sudokus
+-- read and solve them
+readAndSolveAll :: IO ()
+readAndSolveAll = do
+  files <- getDirectoryContents "functional-programming/lab3/sudokus"
+  let files' = filter (\f -> f /= "." && f /= "..") files
+  mapM_ (\f -> do
+    putStr $ "Solving " ++ f ++ "...\n\n"
+    readAndSolve $ "functional-programming/lab3/sudokus/" ++ f
+    putStr "done\n") files'
