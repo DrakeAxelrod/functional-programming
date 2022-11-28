@@ -72,8 +72,7 @@ isSudoku (Sudoku rows) = length rows == 9 && all f rows
 -- check is rows is valid sudoku checks if length of rows is 9 and each row has 9 cells
 -- check if each cell is a valid cell and not Nothing
 isFilled :: Sudoku -> Bool
-isFilled (Sudoku rows) = isSudoku (Sudoku rows) && length rows == 9 && all f rows
-  where f r = (length r == 9) && (not . any isNothing) r
+isFilled (Sudoku rows) = all (all isJust) rows
 
 
 ------------------------------------------------------------------------------
@@ -152,10 +151,7 @@ isOkayBlock :: Block -> Bool
 -- takes list sorts and filters on ~= nothing
 -- check if empty, checks if value
 -- checks consecutive elements for ~=
-isOkayBlock = f . sort . filter (/= Nothing)
-  where f [] = True
-        f [x] = True
-        f (x:y:xs) = x /= y && f (y:xs)
+isOkayBlock = not . null . nub . filter (/= Nothing)
 
 
 -- * D2
@@ -211,14 +207,14 @@ type Pos = (Int,Int)
 
 -- * E1
 
--- | blanks extracts the positions of all blank cells in a Sudoku
+-- | Blanks extracts the positions of all blank cells in a Sudoku
 -- refactor blanks using elemIndices
 blanks :: Sudoku -> [Pos]
 blanks (Sudoku r) = concat $ zipWith f r [0..]
   where f r' i = map (\j -> (i,j)) $ elemIndices Nothing r'
 
 
--- | property that checks that the blanks of allBlankSudoku 
+-- | Property that checks that the blanks of allBlankSudoku 
 -- are indeed all of the expected 9x9 cells.  
 prop_blanks_allBlanks :: Bool
 prop_blanks_allBlanks = all (\c -> (0,0) <= c && c <= (8,8)) b && length b == 81
@@ -227,6 +223,7 @@ prop_blanks_allBlanks = all (\c -> (0,0) <= c && c <= (8,8)) b && length b == 81
 
 -- * E2
 
+-- | Update a list at a supplied index with the supplied value
 (!!=) :: [a] -> (Int,a) -> [a]
 xs !!= (i,y) = take i xs ++ [y] ++ drop (i+1) xs
 
@@ -234,7 +231,6 @@ xs !!= (i,y) = take i xs ++ [y] ++ drop (i+1) xs
 -- So that we can test your `prop_bangBangEquals_correct` function, 
 -- you must give it a non-polymorphic type
 -- (i.e. don't use type variables in its type).
--- 
 prop_bangBangEquals_correct :: [Cell] -> (Int,Cell) -> Property
 prop_bangBangEquals_correct xs (i,y) = 
   0 <= i && i < length xs && not (null xs) ==> l && v
@@ -245,36 +241,37 @@ prop_bangBangEquals_correct xs (i,y) =
 
 
 -- * E3
-
+-- | Returns the sudoku with a single cell updated 
 update :: Sudoku -> Pos -> Cell -> Sudoku
 update (Sudoku r) (y,x) c = Sudoku $ r !!= (y, (r !! y) !!= (x, c))
 
--- | standard module to make life simpler
-(%) :: Int -> Int -> Int
-x % y = x `mod` y
-
--- | map within tuples
+-- | Map within tuples
 mapT :: (a -> b) -> (a,a) -> (b,b)
 mapT f (x,y) = (f x, f y)
 
-
+-- | Assert that the cell was updated correctly
 prop_update_updated :: Sudoku -> Pos -> Cell -> Bool
--- account for same value added
 prop_update_updated s p c = r' !! y !! x == c
   where s' = update s p' c
         Sudoku r' = s'
-        p' = mapT (abs . (%9)) p
+        p' = mapT (abs . (`mod`9)) p
         (y, x) = p'
 
 
 ------------------------------------------------------------------------------
 
 -- * F1
+
+-- | Helper function to generate every solution to a given a sudoku 
+-- by recursively generating every possible sudoku variation for the given 
+-- empty cells. It discards all variations that results in an invalid sudoku.
 solve' :: Sudoku -> [Pos] -> [Sudoku]
 solve' s _     | not (isOkay s) = []
 solve' s []    = [s]
 solve' s (p:r) = concatMap (\c -> flip solve' r $ update s p (Just c)) [1..9]
 
+-- | Solve a Sudoku puzzle by extracting either the first solution produced by solve'
+-- or indicating failure if no solutions exists.
 solve :: Sudoku -> Maybe Sudoku
 solve s | not (isSudoku s) = Nothing
         -- | isFilled s && isOkay s = Just s
@@ -282,6 +279,7 @@ solve s | not (isSudoku s) = Nothing
 
 
 -- * F2
+-- | Reads a Sudoku from a file and solves it, printing the result
 readAndSolve :: FilePath -> IO ()
 readAndSolve fp = do
     s <- readSudoku fp
@@ -290,29 +288,27 @@ readAndSolve fp = do
       _       -> putStr "(no solution)\n"
 
 -- * F3
-
+-- | Helper function to check equality between two sudokus while ignoring
+-- empty cells in either sudoku (treating them as "possibly" equal). Also
+-- nice unicode support!
 (😋) :: Eq a => Maybe a -> Maybe a -> Bool
 Nothing 😋 (Just _) = True
 (Just _) 😋 Nothing = True
 x 😋 y = x == y
 
+-- | Checks if a filled sudoku is solution to another sudoku by checking
+-- that each filled cell in the second sudoku exists at same position in 
+-- the solved one
 isSolutionOf :: Sudoku -> Sudoku -> Bool
 isSolutionOf s s' | isFilled s && isOkay s = all id $ zipWith (😋) c c'
                   | otherwise = False
   where c  = concat $ rows s
         c' = concat $ rows s'
-  
 
 -- * F4
-
+-- | QuickCheck property that checks if a solved sudoku is the solution of a
+-- presolved sudoku
 prop_SolveSound :: Sudoku -> Property
-prop_SolveSound s = isOkay s ==>
-  case solve s of
-    Just s' -> isSolutionOf s' s
-    _       -> True
-
-wierd_Sudoku = Sudoku [[Nothing,Nothing,Nothing,Just 5,Nothing,Nothing,Nothing,Just 3,Nothing],[Nothing,Nothing,Nothing,Nothing,Nothing,Just 3,Nothing,Just 4,Nothing],[Nothing,Just 4,Nothing,Nothing,Nothing,Nothing,Nothing,Nothing,Nothing],[Nothing,Nothing,Just 9,Nothing,Nothing,Nothing,Nothing,Nothing,Nothing],[Nothing,Nothing,Nothing,Nothing,Just 4,Nothing,Just 5,Nothing,Nothing],[Nothing,Nothing,Nothing,Nothing,Nothing,Nothing,Just 2,Just 7,Just 4],[Nothing,Nothing,Nothing,Just 8,Nothing,Nothing,Nothing,Nothing,Just 9],[Nothing,Nothing,Nothing,Nothing,Nothing,Nothing,Nothing,Nothing,Nothing],[Nothing,Nothing,Nothing,Nothing,Nothing,Nothing,Nothing,Just 6,Nothing]]
-
-main :: IO()
-main = do
-  quickCheck prop_SolveSound
+prop_SolveSound s | not (isOkay s) = property Discard 
+                  | otherwise = maybe (property Discard) f (solve s)
+  where f s' = property $ isSolutionOf s' s
